@@ -1,12 +1,20 @@
-const express = require('express')
-const cors = require('cors')
-const app = express()
-require('dotenv').config();
-const stripe = require('stripe')(process.env.STRIPE_SECRET);
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-const port = process.env.PORT || 3000
-const crypto = require("crypto")
+const express = require("express");
 
+const cors = require("cors");
+const app = express();
+require("dotenv").config();
+const stripe = require("stripe")(process.env.STRIPE_SECRET);
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const port = process.env.PORT || 3000;
+const crypto = require("crypto");
+
+const admin = require("firebase-admin");
+
+const serviceAccount = require("path/to/serviceAccountKey.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
 
 
 function generateTrackingId() {
@@ -16,8 +24,22 @@ function generateTrackingId() {
   return `${prefix}-${date}-${random}`;
 }
 
-app.use(express.json())
-app.use(cors())
+app.use(express.json());
+app.use(cors());
+
+
+const verifyFBToken = (req, res, next) => {
+    console.log('header in the middleware', req.headers.authorization)
+    const token = req.headers.authorization;
+
+
+    if(!token){
+        return res.status(401).send({message: 'unauthorized access'})
+    }
+
+    next()
+}
+
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.3o3pwj7.mongodb.net/?appName=Cluster0`;
 
@@ -26,78 +48,74 @@ const client = new MongoClient(uri, {
     version: ServerApiVersion.v1,
     strict: true,
     deprecationErrors: true,
-  }
+  },
 });
 
 async function run() {
   try {
     await client.connect();
-    const db = client.db('create_arena_db');
-    const contestsCollection = db.collection('contests')
-    const paymentsCollection = db.collection('payments');
+    const db = client.db("create_arena_db");
+    const contestsCollection = db.collection("contests");
+    const paymentsCollection = db.collection("payments");
 
-
-    app.get('/contests/approved', async (req, res) => {
+    app.get("/contests/approved", async (req, res) => {
       const result = await contestsCollection
         .find({ status: "approved" })
         .toArray();
       res.send(result);
     });
 
-    
-    app.get('/contests/:id', async (req, res) => {
+    app.get("/contests/:id", async (req, res) => {
       const id = req.params.id;
       const result = await contestsCollection.findOne({
-        _id: new ObjectId(id)
+        _id: new ObjectId(id),
       });
       res.send(result);
     });
 
+    app.get("/contests", async (req, res) => {
+      const query = {};
+      const cursor = contestsCollection.find(query);
+      const result = await cursor.toArray();
+      res.send(result);
+    });
 
-    app.get('/contests', async(req, res) => {
-      const query = {}
-      const cursor = contestsCollection.find(query)
-      const result = await cursor.toArray()
-      res.send(result)
-    })
-
-    
-    app.post('/contests', async (req, res) => {
+    app.post("/contests", async (req, res) => {
       const contest = req.body;
       contest.status = "pending";
       contest.createdAt = new Date();
       const result = await contestsCollection.insertOne(contest);
-      res.send(result)
-    })
+      res.send(result);
+    });
 
-    
-    app.patch('/contests/:id', async (req, res) => {
+    app.patch("/contests/:id", async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
       const { status } = req.body;
-      
-      if (status === 'approved') {
+
+      if (status === "approved") {
         const updated = {
           $set: {
             status: "approved",
             approvedAt: new Date(),
-            trackingId: generateTrackingId()
-
-          }
+            trackingId: generateTrackingId(),
+          },
         };
         const result = await contestsCollection.updateOne(filter, updated);
         res.send(result);
-      } else if (status === 'rejected') {
+      } else if (status === "rejected") {
         const updated = {
           $set: {
             status: "rejected",
-            rejectedAt: new Date()
-          }
+            rejectedAt: new Date(),
+          },
         };
         const result = await contestsCollection.updateOne(filter, updated);
         res.send(result);
       } else {
-        res.status(400).send({ error: 'Invalid status. Use "approved" or "rejected"' });
+        res
+          .status(400)
+          .send({ error: 'Invalid status. Use "approved" or "rejected"' });
       }
     });
 
@@ -105,21 +123,40 @@ async function run() {
 
 
 
-app.patch('/payment-success', async (req, res) => {
+
+
+
+
+
+
+
+app.patch("/payment-success", async (req, res) => {
   try {
     const sessionId = req.query.session_id;
     if (!sessionId) {
-      return res.status(400).send({ error: 'Session ID is required' });
+      return res.status(400).send({ error: "Session ID is required" });
     }
 
     const session = await stripe.checkout.sessions.retrieve(sessionId);
 
     const transactionId = session.payment_intent;
+
+    // 🔒 idempotency check
+    const paymentExist = await paymentsCollection.findOne({ transactionId });
+
+    if (paymentExist) {
+      return res.send({
+        message: "Payment already processed",
+        transactionId: paymentExist.transactionId,
+        trackingId: paymentExist.trackingId,
+      });
+    }
+
     const contestId = session.metadata.contestId;
     const email = session.customer_email;
     const amount = session.amount_total / 100;
 
-
+    // ✅ generate tracking ID on backend
     const trackingId = generateTrackingId();
 
     await paymentsCollection.insertOne({
@@ -129,28 +166,27 @@ app.patch('/payment-success', async (req, res) => {
       email,
       amount,
       sessionId,
-      createdAt: new Date()
+      createdAt: new Date(),
     });
 
     await contestsCollection.updateOne(
       { _id: new ObjectId(contestId) },
       {
         $set: {
-          paymentStatus: 'paid',
+          paymentStatus: "paid",
           transactionId,
-          trackingId
-        }
+          trackingId,
+        },
       }
     );
 
     res.send({
       transactionId,
-      trackingId
+      trackingId,
     });
-
   } catch (error) {
-    console.error('Payment success error:', error);
-    res.status(500).send({ error: 'Payment processing failed' });
+    console.error("Payment success error:", error);
+    res.status(500).send({ error: "Payment processing failed" });
   }
 });
 
@@ -166,51 +202,75 @@ app.patch('/payment-success', async (req, res) => {
 
 
 
-
-
-
-    
-    app.post('/create-checkout-session', async (req, res) => {
+    app.post("/create-checkout-session", async (req, res) => {
       const paymentInfo = req.body;
       const amount = parseInt(paymentInfo.price) * 100;
 
       const session = await stripe.checkout.sessions.create({
-        line_items: [{
-          price_data: {
-            currency: 'usd',
-            unit_amount: amount,
-            product_data: {
-              name: paymentInfo.name
-            }
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              unit_amount: amount,
+              product_data: {
+                name: paymentInfo.name,
+              },
+            },
+            quantity: 1,
           },
-          quantity: 1,
-        }],
+        ],
         customer_email: paymentInfo.email,
-        mode: 'payment',
+        mode: "payment",
         metadata: {
           contestId: paymentInfo.contestId,
-          trackingId: paymentInfo.trackingId
+          trackingId: paymentInfo.trackingId,
         },
         success_url: `${process.env.SITE_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.SITE_DOMAIN}/payment-cancelled`
+        cancel_url: `${process.env.SITE_DOMAIN}/payment-cancelled`,
       });
-      
-      res.send({url: session.url})
+
+      res.send({ url: session.url });
     });
+
+
+
+app.get('/payments', verifyFBToken, async (req, res) => {
+  try {
+    const email = req.query.email;
+
+    // console.log('headers',req.headers)
+
+    if (!email) {
+      return res.status(400).send({ error: 'Email is required' });
+    }
+
+    const payments = await paymentsCollection
+      .find({ email })
+      .sort({ createdAt: -1 }) // latest first
+      .toArray();
+
+    res.send(payments);
+  } catch (error) {
+    console.error('Get payments error:', error);
+    res.status(500).send({ error: 'Failed to fetch payments' });
+  }
+});
+
+
 
     await client.db("admin").command({ ping: 1 });
     console.log("✅ MongoDB connected successfully!");
   } catch (error) {
-    console.error('MongoDB connection error:', error);
+    console.error("MongoDB connection error:", error);
   }
 }
 
 run().catch(console.dir);
 
-app.get('/', (req, res) => {
-  res.send("Arena Server is Running")
-})
+app.get("/", (req, res) => {
+  res.send("Arena Server is Running");
+});
 
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`)
-})
+  console.log(`Server running on port ${port}`);
+});
