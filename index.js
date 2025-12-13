@@ -5,6 +5,16 @@ require('dotenv').config();
 const stripe = require('stripe')(process.env.STRIPE_SECRET);
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const port = process.env.PORT || 3000
+const crypto = require("crypto")
+
+
+
+function generateTrackingId() {
+  const prefix = "PRCL"; // your brand prefix
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, ""); // YYYYMMDD
+  const random = crypto.randomBytes(3).toString("hex").toUpperCase(); // 6-char random hex
+  return `${prefix}-${date}-${random}`;
+}
 
 app.use(express.json())
 app.use(cors())
@@ -24,8 +34,9 @@ async function run() {
     await client.connect();
     const db = client.db('create_arena_db');
     const contestsCollection = db.collection('contests')
+    const paymentsCollection = db.collection('payments');
 
-    // Get approved contests
+
     app.get('/contests/approved', async (req, res) => {
       const result = await contestsCollection
         .find({ status: "approved" })
@@ -33,7 +44,7 @@ async function run() {
       res.send(result);
     });
 
-    // Get single contest
+    
     app.get('/contests/:id', async (req, res) => {
       const id = req.params.id;
       const result = await contestsCollection.findOne({
@@ -42,7 +53,7 @@ async function run() {
       res.send(result);
     });
 
-    // Get all contests
+
     app.get('/contests', async(req, res) => {
       const query = {}
       const cursor = contestsCollection.find(query)
@@ -50,7 +61,7 @@ async function run() {
       res.send(result)
     })
 
-    // Create new contest
+    
     app.post('/contests', async (req, res) => {
       const contest = req.body;
       contest.status = "pending";
@@ -59,7 +70,7 @@ async function run() {
       res.send(result)
     })
 
-    // Approve/Reject contest - SINGLE ENDPOINT
+    
     app.patch('/contests/:id', async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
@@ -69,7 +80,9 @@ async function run() {
         const updated = {
           $set: {
             status: "approved",
-            approvedAt: new Date()
+            approvedAt: new Date(),
+            trackingId: generateTrackingId()
+
           }
         };
         const result = await contestsCollection.updateOne(filter, updated);
@@ -88,7 +101,75 @@ async function run() {
       }
     });
 
-    // Stripe payment
+
+
+
+
+app.patch('/payment-success', async (req, res) => {
+  try {
+    const sessionId = req.query.session_id;
+    if (!sessionId) {
+      return res.status(400).send({ error: 'Session ID is required' });
+    }
+
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    const transactionId = session.payment_intent;
+    const contestId = session.metadata.contestId;
+    const email = session.customer_email;
+    const amount = session.amount_total / 100;
+
+
+    const trackingId = generateTrackingId();
+
+    await paymentsCollection.insertOne({
+      transactionId,
+      trackingId,
+      contestId,
+      email,
+      amount,
+      sessionId,
+      createdAt: new Date()
+    });
+
+    await contestsCollection.updateOne(
+      { _id: new ObjectId(contestId) },
+      {
+        $set: {
+          paymentStatus: 'paid',
+          transactionId,
+          trackingId
+        }
+      }
+    );
+
+    res.send({
+      transactionId,
+      trackingId
+    });
+
+  } catch (error) {
+    console.error('Payment success error:', error);
+    res.status(500).send({ error: 'Payment processing failed' });
+  }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
     app.post('/create-checkout-session', async (req, res) => {
       const paymentInfo = req.body;
       const amount = parseInt(paymentInfo.price) * 100;
@@ -107,9 +188,10 @@ async function run() {
         customer_email: paymentInfo.email,
         mode: 'payment',
         metadata: {
-          contestId: paymentInfo.contestId
+          contestId: paymentInfo.contestId,
+          trackingId: paymentInfo.trackingId
         },
-        success_url: `${process.env.SITE_DOMAIN}/payment-success`,
+        success_url: `${process.env.SITE_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.SITE_DOMAIN}/payment-cancelled`
       });
       
@@ -126,9 +208,9 @@ async function run() {
 run().catch(console.dir);
 
 app.get('/', (req, res) => {
-  res.send("🎯 Arena Server is Running")
+  res.send("Arena Server is Running")
 })
 
 app.listen(port, () => {
-  console.log(`🚀 Server running on port ${port}`)
+  console.log(`Server running on port ${port}`)
 })
