@@ -1,11 +1,8 @@
-
-
-
-
 const express = require('express')
 const cors = require('cors')
 const app = express()
 require('dotenv').config();
+const stripe = require('stripe')(process.env.STRIPE_SECRET);
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const port = process.env.PORT || 3000
 
@@ -28,44 +25,22 @@ async function run() {
     const db = client.db('create_arena_db');
     const contestsCollection = db.collection('contests')
 
+    // Get approved contests
+    app.get('/contests/approved', async (req, res) => {
+      const result = await contestsCollection
+        .find({ status: "approved" })
+        .toArray();
+      res.send(result);
+    });
 
-
-
-
-
-
-
-app.get('/contests/approved', async (req, res) => {
-  const result = await contestsCollection
-    .find({ status: "approved" })
-    .toArray();
-
-  res.send(result);
-});
-
-
-
-
-
-// ================= GET SINGLE CONTEST =================
-app.get('/contests/:id', async (req, res) => {
-  const id = req.params.id;
-
-  const result = await contestsCollection.findOne({
-    _id: new ObjectId(id)
-  });
-
-  res.send(result);
-});
-
-
-
-
-
-
-
-
-
+    // Get single contest
+    app.get('/contests/:id', async (req, res) => {
+      const id = req.params.id;
+      const result = await contestsCollection.findOne({
+        _id: new ObjectId(id)
+      });
+      res.send(result);
+    });
 
     // Get all contests
     app.get('/contests', async(req, res) => {
@@ -84,30 +59,10 @@ app.get('/contests/:id', async (req, res) => {
       res.send(result)
     })
 
-    // Approve contest - FIXED ENDPOINT
+    // Approve/Reject contest - SINGLE ENDPOINT
     app.patch('/contests/:id', async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
-      const updated = {
-        $set: {
-          status: "approved",
-          approvedAt: new Date()
-        }
-      };
-      const result = await contestsCollection.updateOne(filter, updated);
-      res.send(result);
-    });
-
-
-
-
-
-    // Reject contest - FIXED ENDPOINT  
-    app.patch('/contests/:id', async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
-      
-      // Check body for status to determine approve/reject
       const { status } = req.body;
       
       if (status === 'approved') {
@@ -129,22 +84,36 @@ app.get('/contests/:id', async (req, res) => {
         const result = await contestsCollection.updateOne(filter, updated);
         res.send(result);
       } else {
-        res.status(400).send({ error: 'Invalid status' });
+        res.status(400).send({ error: 'Invalid status. Use "approved" or "rejected"' });
       }
+    });
 
+    // Stripe payment
+    app.post('/create-checkout-session', async (req, res) => {
+      const paymentInfo = req.body;
+      const amount = parseInt(paymentInfo.price) * 100;
 
-
-
-
-
-
-
-
-
-
-
-
-
+      const session = await stripe.checkout.sessions.create({
+        line_items: [{
+          price_data: {
+            currency: 'usd',
+            unit_amount: amount,
+            product_data: {
+              name: paymentInfo.name
+            }
+          },
+          quantity: 1,
+        }],
+        customer_email: paymentInfo.email,
+        mode: 'payment',
+        metadata: {
+          contestId: paymentInfo.contestId
+        },
+        success_url: `${process.env.SITE_DOMAIN}/payment-success`,
+        cancel_url: `${process.env.SITE_DOMAIN}/payment-cancelled`
+      });
+      
+      res.send({url: session.url})
     });
 
     await client.db("admin").command({ ping: 1 });
