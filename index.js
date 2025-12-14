@@ -77,88 +77,88 @@ async function run() {
     };
 
     // ✅ FIXED: Added missing creator approval/rejection routes
-    app.patch('/creator/approve/:id', verifyFBToken, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
+    // app.patch('/creator/approve/:id', verifyFBToken,  async (req, res) => {
+    //   const id = req.params.id;
 
-      try {
-        const result = await creatorCollection.updateOne(
-          { _id: new ObjectId(id) },
-          {
-            $set: {
-              status: 'approved',
-              approvedAt: new Date()
-            }
-          }
-        );
+    //   try {
+    //     const result = await creatorCollection.updateOne(
+    //       { _id: new ObjectId(id) },
+    //       {
+    //         $set: {
+    //           status: 'approved',
+    //           approvedAt: new Date()
+    //         }
+    //       }
+    //     );
 
-        if (result.matchedCount === 0) {
-          return res.status(404).send({ message: 'Creator not found' });
-        }
+    //     if (result.matchedCount === 0) {
+    //       return res.status(404).send({ message: 'Creator not found' });
+    //     }
 
-        res.send({ success: true, message: 'Creator approved successfully', result });
-      } catch (error) {
-        console.error('Approve creator error:', error);
-        res.status(500).send({ message: 'Failed to approve creator' });
-      }
-    });
+    //     res.send({ success: true, message: 'Creator approved successfully', result });
+    //   } catch (error) {
+    //     console.error('Approve creator error:', error);
+    //     res.status(500).send({ message: 'Failed to approve creator' });
+    //   }
+    // });
 
-    app.patch('/creator/reject/:id', verifyFBToken, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
+    // app.patch('/creator/reject/:id', verifyFBToken, async (req, res) => {
+    //   const id = req.params.id;
 
-      try {
-        const result = await creatorCollection.updateOne(
-          { _id: new ObjectId(id) },
-          {
-            $set: {
-              status: 'rejected',
-              rejectedAt: new Date()
-            }
-          }
-        );
+    //   try {
+    //     const result = await creatorCollection.updateOne(
+    //       { _id: new ObjectId(id) },
+    //       {
+    //         $set: {
+    //           status: 'rejected',
+    //           rejectedAt: new Date()
+    //         }
+    //       }
+    //     );
 
-        if (result.matchedCount === 0) {
-          return res.status(404).send({ message: 'Creator not found' });
-        }
+    //     if (result.matchedCount === 0) {
+    //       return res.status(404).send({ message: 'Creator not found' });
+    //     }
 
-        res.send({ success: true, message: 'Creator rejected successfully', result });
-      } catch (error) {
-        console.error('Reject creator error:', error);
-        res.status(500).send({ message: 'Failed to reject creator' });
-      }
-    });
+    //     res.send({ success: true, message: 'Creator rejected successfully', result });
+    //   } catch (error) {
+    //     console.error('Reject creator error:', error);
+    //     res.status(500).send({ message: 'Failed to reject creator' });
+    //   }
+    // });
 
-    // Existing user approval routes (keeping them as they were)
-    app.patch('/creator/approve-user/:id', verifyFBToken, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
+    // // Existing user approval routes (keeping them as they were)
+    // app.patch('/creator/approve-user/:id', verifyFBToken, async (req, res) => {
+    //   const id = req.params.id;
 
-      const result = await userCollection.updateOne(
-        { _id: new ObjectId(id) },
-        {
-          $set: {
-            role: 'creator',
-            approvedAt: new Date()
-          }
-        }
-      );
+    //   const result = await userCollection.updateOne(
+    //     { _id: new ObjectId(id) },
+    //     {
+    //       $set: {
+    //         role: 'creator',
+    //         approvedAt: new Date()
+    //       }
+    //     }
+    //   );
 
-      res.send(result);
-    });
+    //   res.send(result);
+    // });
 
-    app.patch('/creator/reject-user/:id', verifyFBToken, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
+    // app.patch('/creator/reject-user/:id', verifyFBToken,  async (req, res) => {
+    //   const id = req.params.id;
 
-      const result = await userCollection.updateOne(
-        { _id: new ObjectId(id) },
-        {
-          $set: {
-            role: 'user',
-            rejectedAt: new Date()
-          }
-        }
-      );
+    //   const result = await userCollection.updateOne(
+    //     { _id: new ObjectId(id) },
+    //     {
+    //       $set: {
+    //         role: 'user',
+    //         rejectedAt: new Date()
+    //       }
+    //     }
+    //   );
 
-      res.send(result);
-    });
+    //   res.send(result);
+    // });
 
     app.post('/users', async (req, res) => {
       const user = req.body;
@@ -380,6 +380,33 @@ async function run() {
         res.status(500).send({ error: 'Failed to create creator request' });
       }
     });
+
+
+    app.patch('/creator/:id', verifyFBToken, async(req, res) => {
+      const status = req.body.status;
+      const id = req.params.id
+      const query = {_id: new ObjectId(id)}
+      const updatedDoc = {
+        $set: {
+          status: status
+        }
+      }
+      const result = await creatorCollection.updateOne(query, updatedDoc)
+
+      if(status === "approved"){
+        const email = req.body.email;
+        const userQuery = {email}
+        const updateUser = {
+          $set: {
+            role: "creator"
+          }
+        }
+        const userResult= await userCollection.updateOne(userQuery, updateUser)
+      }
+
+
+      res.send(result)
+    })
 
     await client.db("admin").command({ ping: 1 });
     console.log("✅ MongoDB connected successfully!");
