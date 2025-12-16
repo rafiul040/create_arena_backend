@@ -40,33 +40,11 @@ async function run() {
     const paymentsCollection = db.collection("payments");
     const creatorCollection = db.collection("creators");
 
-  
-    // const verifyToken = async (req, res, next) => {
-    //   const token = req.headers.authorization;
-    //   if (!token)
-    //     return res.status(401).send({ message: "Unauthorized access" });
-    //   try {
-    //     const idToken = token.split(" ")[1];
-    //     const decoded = await admin.auth().verifyIdToken(idToken);
-    //     req.decoded_email = decoded.email;
-    //     next();
-    //   } catch {
-    //     return res.status(401).send({ message: "Unauthorized access" });
-    //   }
-    // };
-
-
-
-
-
-
-
-
-const verifyToken = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).send({ message: "Unauthorized" });
-  }
+    const verifyToken = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+      if (!authHeader) {
+      return res.status(401).send({ message: "Unauthorized" });
+      }
 
   try {
     const token = authHeader.split(" ")[1];
@@ -118,16 +96,6 @@ const verifyCreatorOrAdmin = async (req, res, next) => {
       next();
     };
 
-    // const verifyAdmin = async (req, res, next) => {
-    //   const email = req.decoded_email;
-    //   const query = { email };
-    //   const user = await userCollection.findOne(query);
-
-    //   if (!user || user.role !== 'admin') {
-    //     return res.status(403).send({ message: 'Forbidden access' });
-    //   }
-    //   next();
-    // };
 
     const getOriginalAdmin = async () => {
       return await userCollection.findOne(
