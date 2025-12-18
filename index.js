@@ -8,10 +8,12 @@ const crypto = require("crypto");
 const admin = require("firebase-admin");
 const serviceAccount = require("./create-arena-firebase-adminsdk.json");
 
+// ================= FIREBASE ADMIN =================
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
+// ================= HELPERS =================
 function generateTrackingId() {
   const prefix = "PRCL";
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -19,9 +21,11 @@ function generateTrackingId() {
   return `${prefix}-${date}-${random}`;
 }
 
+// ================= MIDDLEWARE =================
 app.use(cors());
 app.use(express.json());
 
+// ================= MONGODB =================
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.3o3pwj7.mongodb.net/?appName=Cluster0`;
 const client = new MongoClient(uri, {
   serverApi: {
@@ -35,572 +39,1088 @@ async function run() {
   try {
     await client.connect();
     const db = client.db("create_arena_db");
+
     const userCollection = db.collection("users");
     const contestsCollection = db.collection("contests");
     const paymentsCollection = db.collection("payments");
     const creatorCollection = db.collection("creators");
 
+    // ================= AUTH =================
     const verifyToken = async (req, res, next) => {
-    const authHeader = req.headers.authorization;
-      if (!authHeader) {
-      return res.status(401).send({ message: "Unauthorized" });
+      const authHeader = req.headers.authorization;
+      if (!authHeader) return res.status(401).send({ message: "Unauthorized" });
+
+      try {
+        const token = authHeader.split(" ")[1];
+        const decoded = await admin.auth().verifyIdToken(token);
+        req.decoded_email = decoded.email;
+        next();
+      } catch {
+        res.status(401).send({ message: "Invalid token" });
       }
+    };
 
-  try {
-    const token = authHeader.split(" ")[1];
-    const decoded = await admin.auth().verifyIdToken(token);
-    req.decoded_email = decoded.email;
-    next();
-  } catch (error) {
-    return res.status(401).send({ message: "Invalid token" });
-  }
-};
-
-const verifyAdmin = async (req, res, next) => {
-  const user = await userCollection.findOne({
-    email: req.decoded_email,
-  });
-
-  if (!user || user.role !== "admin") {
-    return res.status(403).send({ message: "Admin access required" });
-  }
-  next();
-};
-
-const verifyCreatorOrAdmin = async (req, res, next) => {
-  const user = await userCollection.findOne({
-    email: req.decoded_email,
-  });
-
-  if (!user || !["creator", "admin"].includes(user.role)) {
-    return res.status(403).send({ message: "Access denied" });
-  }
-  next();
-};
-
-
-
-
-
-
-
-
-    const verifyCreator = async (req, res, next) => {
-      const email = req.decoded_email;
-      const query = { email };
-      const user = await userCollection.findOne(query);
-
-      if (!user || (user.role !== 'creator' && user.role !== 'admin')) {
-        return res.status(403).send({ message: 'Creator access required' });
+    const verifyAdmin = async (req, res, next) => {
+      const user = await userCollection.findOne({ email: req.decoded_email });
+      if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: "Admin access required" });
       }
       next();
     };
 
-
-    const getOriginalAdmin = async () => {
-      return await userCollection.findOne(
-        { role: "admin" },
-        { sort: { createdAt: 1 } }
-      );
+    const verifyCreatorOrAdmin = async (req, res, next) => {
+      const user = await userCollection.findOne({ email: req.decoded_email });
+      if (!user || !["creator", "admin"].includes(user.role)) {
+        return res.status(403).send({ message: "Access denied" });
+      }
+      next();
     };
 
+    // ================= USERS =================
 
+    // Register user (used by Register page)
+    app.post("/users", async (req, res) => {
+      const exist = await userCollection.findOne({ email: req.body.email });
+      if (exist) return res.send({ message: "User already exists" });
 
+      await userCollection.insertOne({
+        ...req.body,
+        role: "user",
+        createdAt: new Date(),
+      });
 
-
-
-
-
-
-app.get("/users/:email", verifyToken, async (req, res) => {
-  try {
-    const email = req.params.email;
-    const user = await userCollection.findOne({ email });
-
-    if (!user) {
-      return res.status(404).send({ message: "User not found" });
-    }
-
-    res.send(user);
-  } catch (error) {
-    res.status(500).send({ message: "Profile fetch failed" });
-  }
-});
-
-
-app.get("/users/:email/stats", verifyToken, async (req, res) => {
-  try {
-    const email = req.params.email;
-
-    const participated = await paymentsCollection.countDocuments({ email });
-    const won = await paymentsCollection.countDocuments({
-      email,
-      status: "winner", 
-    });
-    const createdContests = await contestsCollection.countDocuments({
-      creatorEmail: email,
+      res.send({ message: "User created" });
     });
 
-    res.send({
-      participated,
-      won,
-      createdContests,
-    });
-  } catch (error) {
-    res.status(500).send({ message: "Stats fetch failed" });
-  }
-});
 
 
-app.patch("/users/:id", verifyToken, async (req, res) => {
-  try {
-    const id = req.params.id;
-    const updateDoc = {
-      $set: {
-        name: req.body.name,
-        bio: req.body.bio,
-        photoURL: req.body.photoURL,
-      },
-    };
 
-    const result = await userCollection.updateOne(
-      { _id: new ObjectId(id) },
-      updateDoc
-    );
 
-    if (!result.matchedCount) {
-      return res.status(404).send({ message: "User not found" });
-    }
 
-    res.send({ message: "Profile updated" });
-  } catch (error) {
-    res.status(500).send({ message: "Update failed" });
-  }
+
+
+app.post("/payments", async (req, res) => {
+  const payment = req.body;
+  const result = await paymentsCollection.insertOne({
+    ...payment,
+    createdAt: new Date(),
+  });
+  res.send(result);
 });
 
 
 
 
+app.get("/contests/:id/participants", async (req, res) => {
+  const contestId = req.params.id;
+  const result = await paymentsCollection.find({
+    contestId,
+    paymentStatus: "paid",
+  }).toArray();
+  res.send(result);
+});
+app.get("/users/:email/participated", async (req, res) => {
+  const email = req.params.email;
 
+  const contests = await paymentsCollection.find({
+    email,
+    paymentStatus: "paid",
+  }).toArray();
 
+  res.send(contests);
+});
+app.get("/users/:email/payments", async (req, res) => {
+  const email = req.params.email;
+  const result = await paymentsCollection.find({ email }).toArray();
+  res.send(result);
+});
+app.get("/users/:email/stats", async (req, res) => {
+  const email = req.params.email;
 
+  const participated = await paymentsCollection.countDocuments({ email });
+  const won = await contestsCollection.countDocuments({ winnerEmail: email });
+  const created = await contestsCollection.countDocuments({ creatorEmail: email });
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// ================= USERS =================
-app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
-  const users = await userCollection.find().toArray();
-  res.send(users);
+  res.send({ participated, won, createdContests: created });
 });
 
-app.patch("/users/:id/role", verifyToken, verifyAdmin, async (req, res) => {
-  const id = req.params.id;
-  const { role } = req.body;
-  const requesterEmail = req.decoded_email;
 
-  const originalAdmin = await userCollection.findOne(
-    { role: "admin" },
-    { sort: { createdAt: 1 } }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    app.patch("/declare-winner", verifyToken, verifyCreatorOrAdmin, async (req, res) => {
+  const { contestId, submissionId, winnerEmail } = req.body;
+
+  // Mark winner submission
+  await paymentsCollection.updateOne(
+    { _id: new ObjectId(submissionId) },
+    { $set: { isWinner: true } }
   );
 
-  if (role === "admin" || role === "user") {
-    if (!originalAdmin || originalAdmin.email !== requesterEmail) {
-      return res.status(403).send({
-        message: "Only original admin can change admin role",
+  // Mark contest as winner declared for all submissions in this contest
+  await paymentsCollection.updateMany(
+    { contestId },
+    { $set: { contestWinnerDeclared: true } }
+  );
+
+  res.send({ message: "Winner declared successfully" });
+});
+
+
+
+
+
+
+// ================= PAYMENT SUCCESS & PARTICIPANT REGISTRATION =================
+app.patch("/payment-success", verifyToken, async (req, res) => {
+  const sessionId = req.query.session_id;
+  if (!sessionId) return res.status(400).send({ message: "session_id required" });
+
+  try {
+    // Retrieve Stripe session to verify payment
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    if (session.payment_status !== "paid") {
+      return res.status(400).send({ message: "Payment not completed" });
+    }
+
+    const email = session.customer_email;
+    const contestName = session.display_items?.[0]?.custom?.name || session.metadata?.name || session.line_items?.data[0]?.description || "Unknown Contest";
+
+    // Find contest by name or you can use metadata to send contestId
+    const contest = await contestsCollection.findOne({ name: contestName });
+
+    if (!contest) return res.status(404).send({ message: "Contest not found" });
+
+    // Check if user is already registered
+    const existingPayment = await paymentsCollection.findOne({
+      email,
+      contestId: contest._id.toString(),
+      paymentStatus: "paid",
+    });
+
+    if (existingPayment) {
+      return res.send({
+        message: "Already registered",
+        transactionId: existingPayment.transactionId,
+        trackingId: existingPayment.trackingId,
       });
     }
+
+
+    const transactionId = session.payment_intent;
+    const trackingId = generateTrackingId();
+
+    await paymentsCollection.insertOne({
+      email,
+      contestId: contest._id.toString(),
+      contestName: contest.name,
+      price: contest.price,
+      paymentStatus: "paid",
+      transactionId,
+      trackingId,
+      createdAt: new Date(),
+    });
+
+ 
+
+    res.send({ transactionId, trackingId });
+  } catch (error) {
+    console.error("Payment success error:", error);
+    res.status(500).send({ message: "Payment confirmation failed" });
+  }
+});
+// ================= TASK SUBMISSION =================
+app.post("/contests/:contestId/submit-task", verifyToken, async (req, res) => {
+  const { contestId } = req.params;
+  const email = req.decoded_email;
+  const { submissionLink } = req.body;
+
+  if (!submissionLink) {
+    return res.status(400).send({ message: "Submission link is required" });
   }
 
-  const result = await userCollection.updateOne(
-    { _id: new ObjectId(id) },
-    { $set: { role } }
+  
+  const paymentRecord = await paymentsCollection.findOne({
+    email,
+    contestId,
+    paymentStatus: "paid",
+  });
+
+  if (!paymentRecord) {
+    return res.status(403).send({ message: "User not registered for this contest" });
+  }
+
+  
+
+  await paymentsCollection.updateOne(
+    { _id: paymentRecord._id },
+    {
+      $push: {
+        submissions: {
+          link: submissionLink,
+          submittedAt: new Date(),
+        },
+      },
+    }
   );
 
-  res.send(result);
+  res.send({ message: "Task submitted successfully" });
 });
 
-// ================= CREATORS =================
-app.get("/creator", verifyToken, verifyAdmin, async (req, res) => {
-  const creators = await creatorCollection.find().toArray();
-  res.send(creators);
-});
 
-app.patch("/creator/:id", verifyToken, verifyAdmin, async (req, res) => {
-  const id = req.params.id;
-  const { status, email } = req.body;
 
-  const result = await creatorCollection.updateOne(
-    { _id: new ObjectId(id) },
-    { $set: { status } }
-  );
 
-  if (status === "approved" && email) {
-    await userCollection.updateOne(
-      { email },
-      { $set: { role: "creator" } }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+app.get("/my-participated-contests/:email", async (req, res) => {
+  const email = req.params.email;
+
+  try {
+    
+    const payments = await paymentsCollection
+      .find({ email, paymentStatus: "paid" })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    
+    const contestsWithDetails = await Promise.all(
+      payments.map(async (payment) => {
+        const contest = await contestsCollection.findOne({
+          _id: new ObjectId(payment.contestId)
+        });
+        return {
+          ...payment,
+          contestDetails: contest || { name: "Contest Deleted" }
+        };
+      })
     );
-  }
 
-  res.send(result);
+    res.send(contestsWithDetails);
+  } catch (error) {
+    console.error("Participated contests error:", error);
+    res.status(500).send({ message: "Server error" });
+  }
 });
- // ✅ FIXED: Users routes
-    app.get("/users", verifyToken, verifyAdmin, async (req, routes) => {
+
+// Get my payment history
+app.get("/payments/history/:email", async (req, res) => {
+  const email = req.params.email;
+  const history = await paymentsCollection
+    .find({ email })
+    .sort({ createdAt: -1 })
+    .toArray();
+  res.send(history);
+});
+
+app.get("/my-winning-contests/:email", async (req, res) => {
+  const email = req.params.email;
+  
+  const wins = await paymentsCollection
+    .find({ 
+      email, 
+      $or: [
+        { isWinner: true },
+        { winner: true }
+      ]
+    })
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  
+  const winsWithDetails = await Promise.all(
+    wins.map(async (win) => {
+      const contest = await contestsCollection.findOne({
+        _id: new ObjectId(win.contestId)
+      });
+      return {
+        ...win,
+        contestName: contest?.name || win.contestName,
+        contestImage: contest?.image
+      };
+    })
+  );
+
+  res.send(winsWithDetails);
+});
+
+
+// app.get("/users/:email/stats", async (req, res) => {
+//   const email = req.params.email;
+
+//   const participated = await paymentsCollection.countDocuments({
+//     email,
+//     paymentStatus: "paid"
+//   });
+
+//   const won = await paymentsCollection.countDocuments({
+//     email,
+//     $or: [{ isWinner: true }, { winner: true }]
+//   });
+
+//   const createdContests = await contestsCollection.countDocuments({
+//     creatorEmail: email
+//   });
+
+//   res.send({ participated, won, createdContests });
+// });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+app.get("/users/:email/stats", async (req, res) => {
+  const email = req.params.email;
+
+  const participated = await paymentsCollection.countDocuments({
+    email,
+    paymentStatus: "paid",
+  });
+
+  const won = await paymentsCollection.countDocuments({
+    email,
+    winner: true,
+  });
+
+  const createdContests = await contestsCollection.countDocuments({
+    creatorEmail: email,
+  });
+
+  res.send({ participated, won, createdContests });
+});
+
+app.get("/my-winning-contests/:email", async (req, res) => {
+  const email = req.params.email;
+
+  const wins = await paymentsCollection
+    .find({ email, winner: true })
+    .toArray();
+
+  res.send(wins);
+});
+app.patch("/contests/:id/winner", async (req, res) => {
+  const { contestId, email } = req.body;
+
+  await paymentsCollection.updateOne(
+    { contestId, email },
+    { $set: { winner: true } }
+  );
+
+  res.send({ success: true });
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    // Get my profile
+    app.get("/users/:email", verifyToken, async (req, res) => {
+      if (req.params.email !== req.decoded_email) {
+        return res.status(403).send({ message: "Forbidden" });
+      }
+
+      const user = await userCollection.findOne({ email: req.params.email });
+      res.send(user);
+    });
+
+    // Update my profile
+    app.patch("/users/email/:email", verifyToken, async (req, res) => {
+      if (req.params.email !== req.decoded_email) {
+        return res.status(403).send({ message: "Forbidden" });
+      }
+
+      await userCollection.updateOne(
+        { email: req.params.email },
+        {
+          $set: {
+            displayName: req.body.displayName,
+            photoURL: req.body.photoURL,
+            phone: req.body.phone,
+            bio: req.body.bio,
+          },
+        }
+      );
+
+      res.send({ message: "Profile updated successfully" });
+    });
+
+    // User stats
+    app.get("/users/:email/stats", verifyToken, async (req, res) => {
+      const email = req.params.email;
+
+      const participated = await paymentsCollection.countDocuments({ email });
+      const createdContests = await contestsCollection.countDocuments({
+        creatorEmail: email,
+      });
+
+      res.send({ participated, createdContests });
+    });
+
+    // Get user role
+    app.get("/users/:email/role", async (req, res) => {
+      const user = await userCollection.findOne({ email: req.params.email });
+      res.send({ role: user?.role || "user" });
+    });
+
+    // Admin: get all users
+    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
       const users = await userCollection.find().toArray();
       res.send(users);
     });
 
-    app.get("/users/:email/role", async (req, res) => {
-      const email = req.params.email;
-      const user = await userCollection.findOne({ email });
-      res.send({ role: user?.role || "user" });
-    });
-
-    app.post("/users", async (req, res) => {
-      const user = req.body;
-      user.role = "user";
-      user.createdAt = new Date();
-      const userExist = await userCollection.findOne({ email: user.email });
-      if (userExist) return res.send({ message: "User already exists" });
-      const result = await userCollection.insertOne(user);
-      res.send(result);
-    });
-
+    // Admin: change role
     app.patch("/users/:id/role", verifyToken, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const { role } = req.body;
-      const requesterEmail = req.decoded_email;
-      const originalAdmin = await getOriginalAdmin();
+      await userCollection.updateOne(
+        { _id: new ObjectId(req.params.id) },
+        { $set: { role: req.body.role } }
+      );
+      res.send({ message: "Role updated" });
+    });
 
-      if (role === "admin" || role === "user") {
-        if (!originalAdmin || originalAdmin.email !== requesterEmail) {
-          return res.status(403).send({
-            message: "Only original admin can change admin role",
-          });
-        }
+    // ================= CREATOR =================
+    app.post("/creator", verifyToken, async (req, res) => {
+      await creatorCollection.insertOne({
+        ...req.body,
+        status: "pending",
+        createdAt: new Date(),
+      });
+      res.send({ message: "Creator request sent" });
+    });
+
+    app.get("/creator", verifyToken, verifyAdmin, async (req, res) => {
+      const creators = await creatorCollection.find().toArray();
+      res.send(creators);
+    });
+
+    app.patch("/creator/:id", verifyToken, verifyAdmin, async (req, res) => {
+      await creatorCollection.updateOne(
+        { _id: new ObjectId(req.params.id) },
+        { $set: { status: req.body.status } }
+      );
+
+      if (req.body.status === "approved") {
+        await userCollection.updateOne(
+          { email: req.body.email },
+          { $set: { role: "creator" } }
+        );
       }
 
-      const query = { _id: new ObjectId(id) };
-      const updatedDoc = { $set: { role } };
-      const result = await userCollection.updateOne(query, updatedDoc);
-      res.send(result);
+      res.send({ message: "Creator updated" });
     });
 
-  
+    // ================= CONTESTS =================
     app.get("/contests", async (req, res) => {
-      const contests = await contestsCollection.find().toArray();
-      res.send(contests);
+      res.send(await contestsCollection.find().toArray());
     });
 
     app.get("/contests/approved", async (req, res) => {
-      const contests = await contestsCollection.find({ status: "approved" }).toArray();
-      res.send(contests);
+      res.send(await contestsCollection.find({ status: "approved" }).toArray());
     });
 
-    app.get("/contests/:id", async (req, res) => {
-      const contest = await contestsCollection.findOne({
-        _id: new ObjectId(req.params.id),
+    app.post("/contests", verifyToken, verifyCreatorOrAdmin, async (req, res) => {
+      await contestsCollection.insertOne({
+        ...req.body,
+        status: "pending",
+        creatorEmail: req.decoded_email,
+        createdAt: new Date(),
       });
-      res.send(contest);
+      res.send({ message: "Contest created" });
     });
 
-    // app.post("/contests", verifyToken, verifyCreator, async (req, res) => {
-    //   const contest = req.body;
-    //   contest.status = "pending";
-    //   contest.createdAt = new Date();
-    //   contest.creatorEmail = req.decoded_email; // ✅ Added creator email
-    //   const result = await contestsCollection.insertOne(contest);
-    //   res.send(result);
-    // });
+    app.patch("/contests/:id", verifyToken, verifyAdmin, async (req, res) => {
+      const update = { status: req.body.status };
+      if (req.body.status === "approved") {
+        update.trackingId = generateTrackingId();
+        update.approvedAt = new Date();
+      }
+      await contestsCollection.updateOne(
+        { _id: new ObjectId(req.params.id) },
+        { $set: update }
+      );
+      res.send({ message: "Contest updated" });
+    });
 
-app.post("/contests", verifyToken, verifyCreatorOrAdmin, async (req, res) => {
-  const contest = req.body;
-  contest.status = "pending";
-  contest.createdAt = new Date();
-  contest.creatorEmail = req.decoded_email;
 
-  const result = await contestsCollection.insertOne(contest);
-  res.send(result);
+
+
+
+
+
+
+
+
+app.get("/contests", async (req, res) => {
+  const contests = await contestsCollection.find().toArray();
+  res.send(contests);
 });
 
-    app.get('/my-contests', verifyToken, verifyCreator, async (req, res) => {
-      try {
-        const email = req.query.email || req.decoded_email;
-        const result = await contestsCollection.find({ 
-          creatorEmail: email 
-        }).sort({ createdAt: -1 }).toArray();
-        
-        
-        const contestsWithCount = await Promise.all(result.map(async (contest) => {
-          const count = await paymentsCollection.countDocuments({ 
-            contestId: contest._id 
-          });
-          return { ...contest, participantsCount: count };
-        }));
-        
-        res.send(contestsWithCount);
-      } catch (error) {
-        res.status(500).send({ message: 'Failed to fetch contests', error: error.message });
-      }
-    });
-
-    // ✅ FIXED: Delete contest (Only pending + creator only)
-    // app.delete('/contests/:id', verifyToken, verifyCreator, async (req, res) => {
-    //   try {
-    //     const contest = await contestsCollection.findOne({
-    //       _id: new ObjectId(req.params.id),
-    //       creatorEmail: req.decoded_email,
-    //       status: 'pending' // ✅ Only pending contests
-    //     });
-        
-    //     if (!contest) {
-    //       return res.status(403).send({ message: 'Can only delete own pending contests' });
-    //     }
-        
-    //     const result = await contestsCollection.deleteOne({ 
-    //       _id: new ObjectId(req.params.id) 
-    //     });
-        
-    //     if (result.deletedCount > 0) {
-    //       res.send({ message: 'Contest deleted successfully' });
-    //     } else {
-    //       res.status(404).send({ message: 'Contest not found' });
-    //     }
-    //   } catch (error) {
-    //     res.status(500).send({ message: 'Delete failed', error: error.message });
-    //   }
-    // });
-
-    // app.patch("/contests/:id", verifyAdmin, async (req, res) => {
-    //   const id = req.params.id;
-    //   const updateData = { status: req.body.status };
-      
-    //   if (updateData.status === "approved") {
-    //     updateData.approvedAt = new Date();
-    //     updateData.trackingId = generateTrackingId();
-    //   } else if (updateData.status === "rejected") {
-    //     updateData.rejectedAt = new Date();
-    //   } else {
-    //     return res.status(400).send({ error: "Invalid status" });
-    //   }
-
-    //   const result = await contestsCollection.updateOne(
-    //     { _id: new ObjectId(id) },
-    //     { $set: updateData }
-    //   );
-    //   res.send(result);
-    // });
+// Get approved contests (for AllContests page)
+app.get("/contests/approved", async (req, res) => {
+  const contests = await contestsCollection.find({ status: "approved" }).toArray();
+  res.send(contests);
+});
 
 
+app.get("/contests/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
 
-app.patch(
-  "/contests/:id",
-  verifyToken,
-  verifyAdmin,
-  async (req, res) => {
-    const { status } = req.body;
-    const updateData = { status };
-
-    if (status === "approved") {
-      updateData.approvedAt = new Date();
-      updateData.trackingId = generateTrackingId();
-    } else if (status === "rejected") {
-      updateData.rejectedAt = new Date();
-    } else {
-      return res.status(400).send({ message: "Invalid status" });
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "Invalid contest id" });
     }
 
-    const result = await contestsCollection.updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: updateData }
-    );
-
-    res.send(result);
-  }
-);
-
-
-app.delete(
-  "/contests/:id",
-  verifyToken,
-  verifyCreatorOrAdmin,
-  async (req, res) => {
-    const contest = await contestsCollection.findOne({
-      _id: new ObjectId(req.params.id),
-    });
+    const contest = await contestsCollection.findOne({ _id: new ObjectId(id) });
 
     if (!contest) {
       return res.status(404).send({ message: "Contest not found" });
     }
 
+    res.send(contest);
+  } catch (error) {
+    console.error("Get contest details error:", error);
+    res.status(500).send({ message: "Server error" });
+  }
+});
+
+
+app.get("/contests/:id/participants", async (req, res) => {
+  try {
+    const contestId = req.params.id;
+
+    if (!ObjectId.isValid(contestId)) {
+      return res.status(400).send({ message: "Invalid contest id" });
+    }
+
     
-    if (
-      contest.creatorEmail === req.decoded_email &&
-      contest.status === "pending"
-    ) {
-      await contestsCollection.deleteOne({ _id: contest._id });
-      return res.send({ message: "Contest deleted" });
+    const paymentDocs = await paymentsCollection
+      .find({ contestId, paymentStatus: "paid" })
+      .toArray();
+
+    const emails = [...new Set(paymentDocs.map(p => p.email))];
+
+    
+    const users = await userCollection
+      .find({ email: { $in: emails } })
+      .project({ email: 1, displayName: 1, photoURL: 1 })
+      .toArray();
+
+  
+    const userMap = {};
+    users.forEach(u => {
+      userMap[u.email] = u;
+    });
+
+  
+    const participants = paymentDocs.map(p => {
+      const u = userMap[p.email] || {};
+      return {
+        _id: p._id,
+        email: p.email,
+        name: u.displayName || p.email,
+        photoURL: u.photoURL || null
+      };
+    });
+
+    res.send(participants);
+  } catch (error) {
+    console.error("Get participants error:", error);
+    res.status(500).send({ message: "Server error" });
+  }
+});
+
+
+
+
+
+
+
+    app.delete(
+      "/contests/:id",
+      verifyToken,
+      verifyCreatorOrAdmin,
+      async (req, res) => {
+        await contestsCollection.deleteOne({
+          _id: new ObjectId(req.params.id),
+        });
+        res.send({ message: "Contest deleted" });
+      }
+    );
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    // Replace your existing payment success endpoint with this improved version
+app.patch("/payment-success", verifyToken, async (req, res) => {
+  const sessionId = req.query.session_id;
+  if (!sessionId) return res.status(400).send({ message: "session_id required" });
+
+  try {
+    // Verify Stripe payment
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    if (session.payment_status !== "paid") {
+      return res.status(400).send({ message: "Payment not completed" });
+    }
+
+    const email = req.decoded_email;
+    const contestId = session.metadata?.contestId;
+    const contestName = session.metadata?.name || "Contest";
+
+    if (!contestId) {
+      return res.status(400).send({ message: "Contest ID required" });
+    }
+
+    // Check if already registered
+    const existingPayment = await paymentsCollection.findOne({
+      email,
+      contestId,
+      paymentStatus: "paid",
+    });
+
+    if (existingPayment) {
+      return res.send({
+        message: "Already registered",
+        transactionId: existingPayment.transactionId,
+        trackingId: existingPayment.trackingId,
+      });
+    }
+
+    // Create payment record
+    const transactionId = session.payment_intent;
+    const trackingId = generateTrackingId();
+
+    await paymentsCollection.insertOne({
+      email,
+      contestId,
+      contestName,
+      price: parseInt(session.amount_total) / 100,
+      paymentStatus: "paid",
+      transactionId,
+      trackingId,
+      createdAt: new Date(),
+    });
+
+    res.send({ 
+      message: "Payment confirmed successfully", 
+      transactionId, 
+      trackingId 
+    });
+  } catch (error) {
+    console.error("Payment success error:", error);
+    res.status(500).send({ message: "Payment confirmation failed" });
+  }
+});
+
+// Payment history endpoint
+app.get("/payments/history/:email", verifyToken, async (req, res) => {
+  if (req.params.email !== req.decoded_email) {
+    return res.status(403).send({ message: "Forbidden" });
+  }
+  
+  const history = await paymentsCollection
+    .find({ email: req.params.email })
+    .sort({ createdAt: -1 })
+    .toArray();
+  res.send(history);
+});
+
+
+
+
+
+    // // Payment success confirmation endpoint
+    // app.patch("/payment-success", verifyToken, async (req, res) => {
+    //   const sessionId = req.query.session_id;
+    //   if (!sessionId) return res.status(400).send({ message: "session_id required" });
+
+    //   try {
+    //     const session = await stripe.checkout.sessions.retrieve(sessionId);
+    //     if (session.payment_status !== "paid") {
+    //       return res.status(400).send({ message: "Payment not completed" });
+    //     }
+
+    //     const email = req.decoded_email;
+    //     const contestId = session.metadata?.contestId;
+    //     const contestName = session.metadata?.name || "Contest";
+
+    //     if (!contestId) {
+    //       return res.status(400).send({ message: "Contest ID required" });
+    //     }
+
+    //     const existingPayment = await paymentsCollection.findOne({
+    //       email,
+    //       contestId,
+    //       paymentStatus: "paid",
+    //     });
+
+    //     if (existingPayment) {
+    //       return res.send({
+    //         message: "Already registered",
+    //         transactionId: existingPayment.transactionId,
+    //         trackingId: existingPayment.trackingId,
+    //       });
+    //     }
+
+    //     const transactionId = session.payment_intent;
+    //     const trackingId = generateTrackingId();
+
+    //     await paymentsCollection.insertOne({
+    //       email,
+    //       contestId,
+    //       contestName,
+    //       price: parseInt(session.amount_total) / 100,
+    //       paymentStatus: "paid",
+    //       transactionId,
+    //       trackingId,
+    //       createdAt: new Date(),
+    //     });
+
+    //     res.send({
+    //       message: "Payment confirmed successfully",
+    //       transactionId,
+    //       trackingId
+    //     });
+    //   } catch (error) {
+    //     console.error("Payment success error:", error);
+    //     res.status(500).send({ message: "Payment confirmation failed" });
+    //   }
+    // });
+app.post("/create-checkout-session", verifyToken, async (req, res) => {
+  const { price, contestId, email, name } = req.body;
+
+  // Validation
+  if (!price || !contestId || !email || !name) {
+    return res.status(400).send({ message: "Missing required fields: price, contestId, email, name" });
+  }
+
+  const amount = parseInt(price);
+  if (isNaN(amount) || amount <= 0) {
+    return res.status(400).send({ message: "Invalid price value" });
+  }
+
+  if (!process.env.SITE_DOMAIN) {
+    console.error("SITE_DOMAIN env var missing");
+    return res.status(500).send({ message: "Server configuration error" });
+  }
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      line_items: [{
+        price_data: {
+          currency: "usd",
+          unit_amount: amount * 100, // Convert to cents
+          product_data: { 
+            name: `Contest Entry: ${name}` 
+          },
+        },
+        quantity: 1,
+      }],
+      customer_email: email,
+      mode: "payment",
+      metadata: {
+        contestId,    
+        name,        
+        email         
+      },
+      
+      success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`,
+    });
+
+    res.send({ url: session.url });
+  } catch (error) {
+    console.error("Stripe session creation error:", error);
+    res.status(500).send({ message: "Failed to create payment session" });
+  }
+});
+
+
+
+app.patch("/payment-success", verifyToken, async (req, res) => {
+  const sessionId = req.query.session_id;
+  if (!sessionId) {
+    return res.status(400).send({ message: "session_id required" });
+  }
+
+  try {
+  
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['line_items']
+    });
+
+    if (session.payment_status !== "paid") {
+      return res.status(400).send({ message: "Payment not completed" });
+    }
+
+    const email = req.decoded_email;
+    const contestId = session.metadata?.contestId;
+    const contestName = session.metadata?.name;
+
+    
+    if (!contestId || !contestName) {
+      return res.status(400).send({ message: "Contest information missing" });
+    }
+
+    
+    const existingPayment = await paymentsCollection.findOne({
+      email,
+      contestId,
+      paymentStatus: "paid",
+    });
+
+    if (existingPayment) {
+      return res.send({
+        message: "Already registered for this contest",
+        transactionId: existingPayment.transactionId,
+        trackingId: existingPayment.trackingId,
+      });
     }
 
   
-    const user = await userCollection.findOne({
-      email: req.decoded_email,
+    const contest = await contestsCollection.findOne({ 
+      _id: new ObjectId(contestId) 
     });
-
-    if (user.role === "admin") {
-      await contestsCollection.deleteOne({ _id: contest._id });
-      return res.send({ message: "Contest deleted by admin" });
+    if (!contest) {
+      return res.status(404).send({ message: "Contest not found" });
     }
 
-    return res.status(403).send({ message: "Delete not allowed" });
-  }
-);
-    app.get('/contests/:contestId/participants', verifyToken, async (req, res) => {
-      try {
-        const participants = await paymentsCollection
-          .find({ contestId: req.params.contestId })
-          .project({ email: 1, name: 1, photoURL: 1, createdAt: 1 })
-          .toArray();
-        res.send(participants);
-      } catch (error) {
-        res.status(500).send({ message: 'Participants fetch failed' });
-      }
+
+    const transactionId = session.payment_intent;
+    const trackingId = generateTrackingId();
+    const price = parseInt(session.amount_total) / 100;
+
+    const paymentDoc = {
+      email,
+      contestId,
+      contestName,
+      price,
+      paymentStatus: "paid",
+      transactionId,
+      trackingId,
+      createdAt: new Date(),
+    };
+
+    await paymentsCollection.insertOne(paymentDoc);
+
+    res.send({ 
+      message: "Payment confirmed! You're now registered.",
+      transactionId, 
+      trackingId,
+      contestId 
     });
 
-    app.post("/create-checkout-session", verifyToken, async (req, res) => {
-      const { price, name, email, contestId } = req.body;
-      const amount = parseInt(price) * 100;
-
-      const session = await stripe.checkout.sessions.create({
-        line_items: [{
-          price_data: {
-            currency: "usd",
-            unit_amount: amount,
-            product_data: { name },
-          },
-          quantity: 1,
-        }],
-        customer_email: email,
-        mode: "payment",
-        metadata: { contestId },
-        success_url: `${process.env.SITE_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.SITE_DOMAIN}/payment-cancelled`,
-      });
-
-      res.send({ url: session.url });
-    });
-
-    app.patch("/payment-success", verifyToken, async (req, res) => {
-      try {
-        const sessionId = req.query.session_id;
-        const session = await stripe.checkout.sessions.retrieve(sessionId);
-        const transactionId = session.payment_intent;
-        const contestId = session.metadata.contestId;
-        const email = session.customer_email;
-        const amount = session.amount_total / 100;
-        const trackingId = generateTrackingId();
-
-        const paymentExist = await paymentsCollection.findOne({ transactionId });
-        if (paymentExist) return res.send(paymentExist);
-
-        const paymentData = {
-          transactionId,
-          trackingId,
-          contestId,
-          email,
-          amount,
-          name: session.customer_details?.name || 'Unknown',
-          photoURL: session.customer_details?.photoURL || '/default-avatar.png',
-          createdAt: new Date(),
-        };
-
-        await paymentsCollection.insertOne(paymentData);
-
-        res.send({ transactionId, trackingId });
-      } catch (error) {
-        console.error(error);
-        res.status(500).send({ error: "Payment processing failed" });
-      }
-    });
-
-    
-    app.get("/creator", verifyToken, verifyAdmin, async (req, res) => {
-      const sort = req.query.sort || "new";
-      const sortOption = sort === "new" ? { createdAt: -1 } : { createdAt: 1 };
-      const creators = await creatorCollection.find().sort(sortOption).toArray();
-      res.send(creators);
-    });
-
-    app.post("/creator", verifyToken, async (req, res) => {
-      const creator = req.body;
-      creator.status = "pending";
-      creator.createdAt = new Date();
-      const result = await creatorCollection.insertOne(creator);
-      res.send(result);
-    });
-
-    app.patch("/creator/:id", verifyToken, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const { status, email } = req.body;
-
-      const result = await creatorCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { status } }
-      );
-
-      if (status === "approved" && email) {
-        await userCollection.updateOne(
-          { email },
-          { $set: { role: "creator" } }
-        );
-      }
-
-      res.send(result);
-    });
-
-    await client.db("admin").command({ ping: 1 });
-    console.log("✅ MongoDB connected successfully!");
   } catch (error) {
-    console.error("MongoDB connection error:", error);
+    console.error("Payment success error:", error);
+    res.status(500).send({ message: "Payment confirmation failed" });
+  }
+});
+
+
+
+
+
+// ================= GET APPROVED CONTESTS WITH PARTICIPANTS =================
+app.get("/contests/approved-with-participants", async (req, res) => {
+  try {
+    const contests = await contestsCollection
+      .find({ status: "approved" })
+      .toArray();
+
+    const contestIds = contests.map(c => c._id.toString());
+
+    const payments = await paymentsCollection
+      .find({
+        contestId: { $in: contestIds },
+        paymentStatus: "paid"
+      })
+      .toArray();
+
+    const emails = [...new Set(payments.map(p => p.email))];
+
+    const users = await userCollection
+      .find({ email: { $in: emails } })
+      .project({ email: 1, displayName: 1, photoURL: 1 })
+      .toArray();
+
+    const userMap = {};
+    users.forEach(u => {
+      userMap[u.email] = u;
+    });
+
+    const contestParticipantsMap = {};
+
+    payments.forEach(p => {
+      if (!contestParticipantsMap[p.contestId]) {
+        contestParticipantsMap[p.contestId] = [];
+      }
+
+      const user = userMap[p.email] || {};
+
+      contestParticipantsMap[p.contestId].push({
+        email: p.email,
+        name: user.displayName || p.email,
+        photoURL: user.photoURL || null
+      });
+    });
+
+    const finalContests = contests.map(contest => ({
+      ...contest,
+      participants: contestParticipantsMap[contest._id.toString()] || [],
+      participantsCount:
+        contestParticipantsMap[contest._id.toString()]?.length || 0
+    }));
+
+    res.send(finalContests);
+  } catch (error) {
+    console.error("Contest fetch error:", error);
+    res.status(500).send({ message: "Server error" });
+  }
+});
+
+
+
+
+
+
+    console.log("✅ MongoDB connected");
+  } catch (err) {
+    console.error(err);
   }
 }
 
-run().catch(console.dir);
+run();
 
 app.get("/", (req, res) => {
-  res.send("Arena Server is Running ✅");
+  res.send("Create Arena Server Running ✅");
 });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Server running on port ${port}`));
-
-
-
-
-
-
-
-
-
-
-
-
+app.listen(port, () => console.log(`🚀 Server running on ${port}`));
 
 
 
