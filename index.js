@@ -84,25 +84,30 @@ async function run() {
       res.send({ message: "User created" });
     });
 
-    app.post("/payments", async (req, res) => {
-      const payment = req.body;
-      const result = await paymentsCollection.insertOne({
-        ...payment,
-        createdAt: new Date(),
-      });
-      res.send(result);
-    });
+    // app.post("/payments", async (req, res) => {
+    //   const payment = req.body;
+    //   const result = await paymentsCollection.insertOne({
+    //     ...payment,
+    //     createdAt: new Date(),
+    //   });
+    //   res.send(result);
+    // });
 
-    app.get("/contests/:id/participants", async (req, res) => {
-      const contestId = req.params.id;
-      const result = await paymentsCollection
-        .find({
-          contestId,
-          paymentStatus: "paid",
-        })
-        .toArray();
-      res.send(result);
-    });
+    // app.get("/contests/:id/participants", async (req, res) => {
+    //   const contestId = req.params.id;
+    //   const result = await paymentsCollection
+    //     .find({
+    //       contestId,
+    //       paymentStatus: "paid",
+    //     })
+    //     .toArray();
+    //   res.send(result);
+    // });
+    
+    
+    
+    
+    
     app.get("/users/:email/participated", async (req, res) => {
       const email = req.params.email;
 
@@ -120,103 +125,56 @@ async function run() {
       const result = await paymentsCollection.find({ email }).toArray();
       res.send(result);
     });
-    app.get("/users/:email/stats", async (req, res) => {
-      const email = req.params.email;
 
-      const participated = await paymentsCollection.countDocuments({ email });
-      const won = await contestsCollection.countDocuments({
-        winnerEmail: email,
-      });
-      const created = await contestsCollection.countDocuments({
-        creatorEmail: email,
-      });
 
-      res.send({ participated, won, createdContests: created });
-    });
 
-    app.patch(
-      "/declare-winner",
-      verifyToken,
-      verifyCreatorOrAdmin,
-      async (req, res) => {
-        const { contestId, submissionId, winnerEmail } = req.body;
 
-        await paymentsCollection.updateOne(
-          { _id: new ObjectId(submissionId) },
-          { $set: { isWinner: true } }
-        );
 
-        await paymentsCollection.updateMany(
-          { contestId },
-          { $set: { contestWinnerDeclared: true } }
-        );
 
-        res.send({ message: "Winner declared successfully" });
-      }
-    );
+    // app.get("/users/:email/stats", async (req, res) => {
+    //   const email = req.params.email;
 
-    // app.patch("/payment-success", verifyToken, async (req, res) => {
-    //   const sessionId = req.query.session_id;
-    //   if (!sessionId)
-    //     return res.status(400).send({ message: "session_id required" });
+    //   const participated = await paymentsCollection.countDocuments({ email });
+    //   const won = await contestsCollection.countDocuments({
+    //     winnerEmail: email,
+    //   });
+    //   const created = await contestsCollection.countDocuments({
+    //     creatorEmail: email,
+    //   });
 
-    //   try {
-    //     const session = await stripe.checkout.sessions.retrieve(sessionId);
-
-    //     if (session.payment_status !== "paid") {
-    //       return res.status(400).send({ message: "Payment not completed" });
-    //     }
-
-    //     const email = session.customer_email;
-    //     const contestName =
-    //       session.display_items?.[0]?.custom?.name ||
-    //       session.metadata?.name ||
-    //       session.line_items?.data[0]?.description ||
-    //       "Unknown Contest";
-
-    //     const contest = await contestsCollection.findOne({ name: contestName });
-
-    //     if (!contest)
-    //       return res.status(404).send({ message: "Contest not found" });
-
-    //     const existingPayment = await paymentsCollection.findOne({
-    //       email,
-    //       contestId: contest._id.toString(),
-    //       paymentStatus: "paid",
-    //     });
-
-    //     if (existingPayment) {
-    //       return res.send({
-    //         message: "Already registered",
-    //         transactionId: existingPayment.transactionId,
-    //         trackingId: existingPayment.trackingId,
-    //       });
-    //     }
-
-    //     const transactionId = session.payment_intent;
-    //     const trackingId = generateTrackingId();
-
-    //     await paymentsCollection.insertOne({
-    //       email,
-    //       contestId: contest._id.toString(),
-    //       contestName: contest.name,
-    //       price: contest.price,
-    //       paymentStatus: "paid",
-    //       transactionId,
-    //       trackingId,
-    //       createdAt: new Date(),
-    //     });
-
-    //     res.send({ transactionId, trackingId });
-    //   } catch (error) {
-    //     console.error("Payment success error:", error);
-    //     res.status(500).send({ message: "Payment confirmation failed" });
-    //   }
+    //   res.send({ participated, won, createdContests: created });
     // });
-    app.post(
-      "/contests/:contestId/submit-task",
-      verifyToken,
-      async (req, res) => {
+
+
+
+
+
+
+
+
+    // app.patch(
+    //   "/declare-winner",
+    //   verifyToken,
+    //   verifyCreatorOrAdmin,
+    //   async (req, res) => {
+    //     const { contestId, submissionId, winnerEmail } = req.body;
+
+    //     await paymentsCollection.updateOne(
+    //       { _id: new ObjectId(submissionId) },
+    //       { $set: { isWinner: true } }
+    //     );
+
+    //     await paymentsCollection.updateMany(
+    //       { contestId },
+    //       { $set: { contestWinnerDeclared: true } }
+    //     );
+
+    //     res.send({ message: "Winner declared successfully" });
+    //   }
+    // );
+
+
+    app.post("/contests/:contestId/submit-task", verifyToken, async (req, res) => {
         const { contestId } = req.params;
         const email = req.decoded_email;
         const { submissionLink } = req.body;
@@ -254,15 +212,6 @@ async function run() {
         res.send({ message: "Task submitted successfully" });
       }
     )
-
-
-
-
-
-
-
-
-
 
 
 app.get("/payment-success", verifyToken, async (req, res) => {
@@ -344,16 +293,6 @@ app.get("/payment-success", verifyToken, async (req, res) => {
     res.status(500).send({ message: "Payment confirmation failed" });
   }
 });
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -476,61 +415,61 @@ app.patch(
       }
     });
 
-    app.get("/payments/history/:email", async (req, res) => {
-      const email = req.params.email;
-      const history = await paymentsCollection
-        .find({ email })
-        .sort({ createdAt: -1 })
-        .toArray();
-      res.send(history);
-    });
+    // app.get("/payments/history/:email", async (req, res) => {
+    //   const email = req.params.email;
+    //   const history = await paymentsCollection
+    //     .find({ email })
+    //     .sort({ createdAt: -1 })
+    //     .toArray();
+    //   res.send(history);
+    // });
 
-    app.get("/my-winning-contests/:email", async (req, res) => {
-      const email = req.params.email;
+    // app.get("/my-winning-contests/:email", async (req, res) => {
+    //   const email = req.params.email;
 
-      const wins = await paymentsCollection
-        .find({
-          email,
-          $or: [{ isWinner: true }, { winner: true }],
-        })
-        .sort({ createdAt: -1 })
-        .toArray();
+    //   const wins = await paymentsCollection
+    //     .find({
+    //       email,
+    //       $or: [{ isWinner: true }, { winner: true }],
+    //     })
+    //     .sort({ createdAt: -1 })
+    //     .toArray();
 
-      const winsWithDetails = await Promise.all(
-        wins.map(async (win) => {
-          const contest = await contestsCollection.findOne({
-            _id: new ObjectId(win.contestId),
-          });
-          return {
-            ...win,
-            contestName: contest?.name || win.contestName,
-            contestImage: contest?.image,
-          };
-        })
-      );
+    //   const winsWithDetails = await Promise.all(
+    //     wins.map(async (win) => {
+    //       const contest = await contestsCollection.findOne({
+    //         _id: new ObjectId(win.contestId),
+    //       });
+    //       return {
+    //         ...win,
+    //         contestName: contest?.name || win.contestName,
+    //         contestImage: contest?.image,
+    //       };
+    //     })
+    //   );
 
-      res.send(winsWithDetails);
-    });
+    //   res.send(winsWithDetails);
+    // });
 
-    app.get("/users/:email/stats", async (req, res) => {
-      const email = req.params.email;
+    // app.get("/users/:email/stats", async (req, res) => {
+    //   const email = req.params.email;
 
-      const participated = await paymentsCollection.countDocuments({
-        email,
-        paymentStatus: "paid",
-      });
+    //   const participated = await paymentsCollection.countDocuments({
+    //     email,
+    //     paymentStatus: "paid",
+    //   });
 
-      const won = await paymentsCollection.countDocuments({
-        email,
-        winner: true,
-      });
+    //   const won = await paymentsCollection.countDocuments({
+    //     email,
+    //     winner: true,
+    //   });
 
-      const createdContests = await contestsCollection.countDocuments({
-        creatorEmail: email,
-      });
+    //   const createdContests = await contestsCollection.countDocuments({
+    //     creatorEmail: email,
+    //   });
 
-      res.send({ participated, won, createdContests });
-    });
+    //   res.send({ participated, won, createdContests });
+    // });
 
     app.get("/my-winning-contests/:email", async (req, res) => {
       const email = req.params.email;
@@ -541,16 +480,16 @@ app.patch(
 
       res.send(wins);
     });
-    app.patch("/contests/:id/winner", async (req, res) => {
-      const { contestId, email } = req.body;
+    // app.patch("/contests/:id/winner", async (req, res) => {
+    //   const { contestId, email } = req.body;
 
-      await paymentsCollection.updateOne(
-        { contestId, email },
-        { $set: { winner: true } }
-      );
+    //   await paymentsCollection.updateOne(
+    //     { contestId, email },
+    //     { $set: { winner: true } }
+    //   );
 
-      res.send({ success: true });
-    });
+    //   res.send({ success: true });
+    // });
 
     app.get("/users/:email", verifyToken, async (req, res) => {
       if (req.params.email !== req.decoded_email) {
@@ -640,13 +579,13 @@ app.patch(
       res.send({ message: "Creator updated" });
     });
 
-    app.get("/contests", async (req, res) => {
-      res.send(await contestsCollection.find().toArray());
-    });
+    // app.get("/contests", async (req, res) => {
+    //   res.send(await contestsCollection.find().toArray());
+    // });
 
-    app.get("/contests/approved", async (req, res) => {
-      res.send(await contestsCollection.find({ status: "approved" }).toArray());
-    });
+    // app.get("/contests/approved", async (req, res) => {
+    //   res.send(await contestsCollection.find({ status: "approved" }).toArray());
+    // });
 
     app.post(
       "/contests",
@@ -761,66 +700,7 @@ app.patch(
     );
 
    
-    // app.patch("/payment-success", verifyToken, async (req, res) => {
-    //   const sessionId = req.query.session_id;
-    //   if (!sessionId)
-    //     return res.status(400).send({ message: "session_id required" });
-
-    //   try {
-      
-    //     const session = await stripe.checkout.sessions.retrieve(sessionId);
-    //     if (session.payment_status !== "paid") {
-    //       return res.status(400).send({ message: "Payment not completed" });
-    //     }
-
-    //     const email = req.decoded_email;
-    //     const contestId = session.metadata?.contestId;
-    //     const contestName = session.metadata?.name || "Contest";
-
-    //     if (!contestId) {
-    //       return res.status(400).send({ message: "Contest ID required" });
-    //     }
-
-        
-    //     const existingPayment = await paymentsCollection.findOne({
-    //       email,
-    //       contestId,
-    //       paymentStatus: "paid",
-    //     });
-
-    //     if (existingPayment) {
-    //       return res.send({
-    //         message: "Already registered",
-    //         transactionId: existingPayment.transactionId,
-    //         trackingId: existingPayment.trackingId,
-    //       });
-    //     }
-
-      
-    //     const transactionId = session.payment_intent;
-    //     const trackingId = generateTrackingId();
-
-    //     await paymentsCollection.insertOne({
-    //       email,
-    //       contestId,
-    //       contestName,
-    //       price: parseInt(session.amount_total) / 100,
-    //       paymentStatus: "paid",
-    //       transactionId,
-    //       trackingId,
-    //       createdAt: new Date(),
-    //     });
-
-    //     res.send({
-    //       message: "Payment confirmed successfully",
-    //       transactionId,
-    //       trackingId,
-    //     });
-    //   } catch (error) {
-    //     console.error("Payment success error:", error);
-    //     res.status(500).send({ message: "Payment confirmation failed" });
-    //   }
-    // });
+   
 
     
     app.get("/payments/history/:email", verifyToken, async (req, res) => {
@@ -891,81 +771,7 @@ app.patch(
       }
     });
 
-    // app.patch("/payment-success", verifyToken, async (req, res) => {
-    //   const sessionId = req.query.session_id;
-    //   if (!sessionId) {
-    //     return res.status(400).send({ message: "session_id required" });
-    //   }
-
-    //   try {
-    //     const session = await stripe.checkout.sessions.retrieve(sessionId, {
-    //       expand: ["line_items"],
-    //     });
-
-    //     if (session.payment_status !== "paid") {
-    //       return res.status(400).send({ message: "Payment not completed" });
-    //     }
-
-    //     const email = req.decoded_email;
-    //     const contestId = session.metadata?.contestId;
-    //     const contestName = session.metadata?.name;
-
-    //     if (!contestId || !contestName) {
-    //       return res
-    //         .status(400)
-    //         .send({ message: "Contest information missing" });
-    //     }
-
-    //     const existingPayment = await paymentsCollection.findOne({
-    //       email,
-    //       contestId,
-    //       paymentStatus: "paid",
-    //     });
-
-    //     if (existingPayment) {
-    //       return res.send({
-    //         message: "Already registered for this contest",
-    //         transactionId: existingPayment.transactionId,
-    //         trackingId: existingPayment.trackingId,
-    //       });
-    //     }
-
-    //     const contest = await contestsCollection.findOne({
-    //       _id: new ObjectId(contestId),
-    //     });
-    //     if (!contest) {
-    //       return res.status(404).send({ message: "Contest not found" });
-    //     }
-
-    //     const transactionId = session.payment_intent;
-    //     const trackingId = generateTrackingId();
-    //     const price = parseInt(session.amount_total) / 100;
-
-    //     const paymentDoc = {
-    //       email,
-    //       contestId,
-    //       contestName,
-    //       price,
-    //       paymentStatus: "paid",
-    //       transactionId,
-    //       trackingId,
-    //       createdAt: new Date(),
-    //     };
-
-    //     await paymentsCollection.insertOne(paymentDoc);
-
-    //     res.send({
-    //       message: "Payment confirmed! You're now registered.",
-    //       transactionId,
-    //       trackingId,
-    //       contestId,
-    //     });
-    //   } catch (error) {
-    //     console.error("Payment success error:", error);
-    //     res.status(500).send({ message: "Payment confirmation failed" });
-    //   }
-    // });
-
+    
    
     app.get("/contests/approved-with-participants", async (req, res) => {
       try {
@@ -1038,4 +844,3 @@ app.get("/", (req, res) => {
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`🚀 Server running on ${port}`));
-
