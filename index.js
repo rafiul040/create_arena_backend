@@ -6,7 +6,7 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET);
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const crypto = require("crypto");
 const admin = require("firebase-admin");
-// const serviceAccount = require("./create-arena-firebase-adminsdk.json");
+
 
 
 const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString('utf8')
@@ -38,7 +38,6 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // await client.connect();
     const db = client.db("create_arena_db");
 
     const userCollection = db.collection("users");
